@@ -245,7 +245,7 @@
         const pinPopupClose = document.getElementById('pin-popup-close');
 
         // DEFAULT PIN: Silakan ubah angka ini jika ingin PIN lain
-        const SECRET_PIN = "2704";
+        const SECRET_PIN = "0706";
 
         let pinAttempt = 0;
         let popupTimeout = null;
@@ -537,14 +537,25 @@ document.addEventListener("DOMContentLoaded", function () {
                     const teksCaption = customCaption ? customCaption : (capElem ? capElem.innerText : '');
                     if (modalCaption) modalCaption.innerText = teksCaption;
                 }
-                // D. JIKA YANG DIKLIK ADALAH GALERI CINTA
+                // D. JIKA YANG DIKLIK ADALAH GALERI CINTA (CORE MEMORIES)
                 else {
                     modalImg.src = this.src;
-                    modalImg.style.aspectRatio = "9 / 16";
-                    modalImg.style.width = "auto";
-                    modalImg.style.height = "75vh";
-                    modalImg.style.maxWidth = "85vw";
-                    modalImg.style.maxHeight = "75vh";
+                    const parentCard = this.closest('.scratch-card');
+                    const isLandscapeRatio = parentCard && parentCard.classList.contains('ratio-3-2');
+
+                    if (isLandscapeRatio) {
+                        modalImg.style.aspectRatio = "3 / 2";
+                        modalImg.style.width = "min(92vw, calc(75vh * 1.5), 650px)";
+                        modalImg.style.height = "auto";
+                        modalImg.style.maxWidth = "92vw";
+                        modalImg.style.maxHeight = "75vh";
+                    } else {
+                        modalImg.style.aspectRatio = "3 / 4";
+                        modalImg.style.width = "min(88vw, calc(75vh * 0.75), 480px)";
+                        modalImg.style.height = "auto";
+                        modalImg.style.maxWidth = "88vw";
+                        modalImg.style.maxHeight = "75vh";
+                    }
                     modalImg.style.objectFit = "cover";
                 }
 
@@ -586,18 +597,128 @@ function tutupModal() {
 // ==========================================
 // 1.B PENGATURAN VIDEO CORE MEMORIES & KUNCIAN ORIENTASI
 // ==========================================
+function setBgMusicPlaying(shouldPlay) {
+    const bgMusic = document.getElementById('bg-music');
+    const iconPlay = document.getElementById('icon-play');
+    const iconPause = document.getElementById('icon-pause');
+    if (!bgMusic) return;
+
+    if (shouldPlay) {
+        bgMusic.play().catch(() => { });
+        if (iconPlay) iconPlay.style.display = 'none';
+        if (iconPause) iconPause.style.display = 'block';
+    } else {
+        bgMusic.pause();
+        if (iconPlay) iconPlay.style.display = 'block';
+        if (iconPause) iconPause.style.display = 'none';
+    }
+}
+
+function updateMuteButtonUI(videoId, isMuted) {
+    const btn = document.getElementById('btn-mute-video-' + videoId);
+    if (!btn) return;
+    const iconEl = btn.querySelector('.btn-icon');
+    const textEl = btn.querySelector('.btn-text');
+
+    if (isMuted) {
+        btn.classList.add('is-muted');
+        if (iconEl) iconEl.textContent = '🔇';
+        if (textEl) textEl.textContent = 'Unmute Suara';
+    } else {
+        btn.classList.remove('is-muted');
+        if (iconEl) iconEl.textContent = '🔊';
+        if (textEl) textEl.textContent = 'Mute Suara';
+    }
+}
+
+function updatePlayButtonUI(videoId, isPlaying) {
+    const btn = document.getElementById('btn-inline-play-' + videoId);
+    if (!btn) return;
+    const iconEl = btn.querySelector('.btn-icon');
+    const textEl = btn.querySelector('.btn-text');
+
+    if (isPlaying) {
+        if (iconEl) iconEl.textContent = '⏸️';
+        if (textEl) textEl.textContent = 'Jeda Video';
+    } else {
+        if (iconEl) iconEl.textContent = '▶️';
+        if (textEl) textEl.textContent = 'Putar Disini';
+    }
+}
+
+function syncBgMusicWithVideos() {
+    const mainContent = document.getElementById('main-content');
+    if (mainContent && mainContent.classList.contains('hidden')) return;
+
+    const videos = document.querySelectorAll('.memory-video');
+    let anyVideoUnmuted = false;
+
+    videos.forEach(v => {
+        if (!v.muted && v.volume > 0) {
+            anyVideoUnmuted = true;
+        }
+    });
+
+    if (anyVideoUnmuted) {
+        // Jika ada video yang bersuara (unmute), matikan backsound otomatis
+        setBgMusicPlaying(false);
+    } else {
+        // Jika semua video di-mute kembali, nyalakan backsound otomatis
+        setBgMusicPlaying(true);
+    }
+}
+
 function initVideoMemories() {
     const videos = document.querySelectorAll('.memory-video');
 
-    videos.forEach(video => {
+    videos.forEach((video, idx) => {
+        const videoId = idx + 1;
+
+        // Otomatis mute suara di kedua video saat awal
+        video.muted = true;
+        updateMuteButtonUI(videoId, true);
+        updatePlayButtonUI(videoId, false);
+
         video.addEventListener('play', function () {
-            // Hentikan video lain jika sedang menyala agar tidak bertumpuk
-            videos.forEach(otherVideo => {
+            updatePlayButtonUI(videoId, true);
+            // Jika kedua video diputar melalui tombol "Putar Disini" (mode inline),
+            // izinkan keduanya berputar bersamaan tanpa saling mematikan.
+            // Jika bukan dari "Putar Disini" (misal Putar Layar Penuh), hentikan video lainnya.
+            videos.forEach((otherVideo, otherIdx) => {
                 if (otherVideo !== video && !otherVideo.paused) {
-                    otherVideo.pause();
+                    const bothPlayHere = (video.dataset.playMode === 'inline' && otherVideo.dataset.playMode === 'inline');
+                    if (!bothPlayHere) {
+                        otherVideo.pause();
+                        updatePlayButtonUI(otherIdx + 1, false);
+                    }
                 }
             });
-            // Lagu latar (bg-music) tetap terus berputar tanpa dijeda
+        });
+
+        video.addEventListener('pause', function () {
+            updatePlayButtonUI(videoId, false);
+        });
+
+        video.addEventListener('ended', function () {
+            updatePlayButtonUI(videoId, false);
+        });
+
+        // Sinkronisasi juga jika user menekan tombol mute bawaan dari kontrol video
+        video.addEventListener('volumechange', function () {
+            const isMutedNow = video.muted || video.volume === 0;
+            updateMuteButtonUI(videoId, isMutedNow);
+
+            if (!isMutedNow) {
+                // Jika video ini di-unmute, pastikan video lain di-mute
+                videos.forEach((otherVideo, otherIdx) => {
+                    if (otherVideo !== video && !otherVideo.muted) {
+                        otherVideo.muted = true;
+                        updateMuteButtonUI(otherIdx + 1, true);
+                    }
+                });
+            }
+
+            syncBgMusicWithVideos();
         });
     });
 
@@ -607,13 +728,18 @@ function initVideoMemories() {
         const isMobile = window.innerWidth <= 768 || ('ontouchstart' in window && window.innerWidth <= 900);
 
         const overlays = document.querySelectorAll('.rotate-lock-overlay');
-        overlays.forEach(overlay => {
+        overlays.forEach((overlay, idx) => {
+            // Jika user sudah memilih "Putar Disini", jangan kunci lagi dengan overlay
+            if (overlay.classList.contains('overlay-dismissed')) {
+                overlay.style.display = 'none';
+                return;
+            }
+
             if (isMobile && !isLandscape) {
-                // Di HP mode vertikal: tampilkan overlay & pause video
+                // Di HP mode vertikal: tampilkan overlay & pause video yang belum di-unlock
                 overlay.style.display = 'flex';
-                videos.forEach(v => {
-                    if (!v.paused) v.pause();
-                });
+                const v = videos[idx];
+                if (v && !v.paused) v.pause();
             } else {
                 // Di mode horizontal atau di desktop: sembunyikan overlay
                 overlay.style.display = 'none';
@@ -628,19 +754,76 @@ function initVideoMemories() {
     checkOrientation();
 }
 
+// Handler tombol "Putar Disini" (putar langsung tanpa perlu fullscreen/landscape)
+function handlePlayHere(videoId) {
+    const video = document.getElementById('video-memories-' + videoId);
+    if (!video) return;
+
+    video.dataset.playMode = 'inline';
+
+    const overlay = document.getElementById('rotate-overlay-' + videoId);
+    if (overlay) {
+        overlay.classList.add('overlay-dismissed');
+        overlay.style.display = 'none';
+    }
+
+    if (video.paused) {
+        video.play().catch(() => { });
+    } else {
+        video.pause();
+    }
+}
+
+// Handler tombol Mute / Unmute pada video
+function toggleVideoMute(videoId) {
+    const video = document.getElementById('video-memories-' + videoId);
+    if (!video) return;
+
+    video.muted = !video.muted;
+    if (!video.muted && video.volume === 0) {
+        video.volume = 1;
+    }
+
+    // Jika video di-unmute, mute video lainnya
+    if (!video.muted) {
+        const allVideos = document.querySelectorAll('.memory-video');
+        allVideos.forEach((otherVideo, otherIdx) => {
+            if (otherVideo !== video && !otherVideo.muted) {
+                otherVideo.muted = true;
+                updateMuteButtonUI(otherIdx + 1, true);
+            }
+        });
+    }
+
+    updateMuteButtonUI(videoId, video.muted);
+    syncBgMusicWithVideos();
+}
+
 // Handler tombol putar layar penuh (fullscreen)
 function handleRotateAndPlay(videoId) {
     const video = document.getElementById('video-memories-' + videoId);
     if (!video) return;
 
+    video.dataset.playMode = 'fullscreen';
+
+    // Hentikan video lain saat masuk mode layar penuh
+    const allVideos = document.querySelectorAll('.memory-video');
+    allVideos.forEach((otherVideo, otherIdx) => {
+        if (otherVideo !== video && !otherVideo.paused) {
+            otherVideo.pause();
+            updatePlayButtonUI(otherIdx + 1, false);
+        }
+    });
+
     const overlay = document.getElementById('rotate-overlay-' + videoId);
     if (overlay) {
+        overlay.classList.add('overlay-dismissed');
         overlay.style.display = 'none';
     }
 
     // Masuk fullscreen dan coba kunci orientasi horizontal
     if (video.requestFullscreen) {
-        video.requestFullscreen().catch(() => {});
+        video.requestFullscreen().catch(() => { });
     } else if (video.webkitRequestFullscreen) {
         video.webkitRequestFullscreen();
     } else if (video.webkitEnterFullscreen) {
@@ -649,10 +832,10 @@ function handleRotateAndPlay(videoId) {
     }
 
     if (screen.orientation && screen.orientation.lock) {
-        screen.orientation.lock('landscape').catch(() => {});
+        screen.orientation.lock('landscape').catch(() => { });
     }
 
-    video.play().catch(() => {});
+    video.play().catch(() => { });
 }
 
 // ==========================================
@@ -965,8 +1148,15 @@ document.addEventListener('DOMContentLoaded', () => {
         let drawMoveCount = 0;
 
         setTimeout(() => {
-            canvas.width = 220;
-            canvas.height = Math.round(220 * 16 / 9);
+            if (index < 3) {
+                // Foto 1 - 3: Rasio 3:2
+                canvas.width = 360;
+                canvas.height = 240;
+            } else {
+                // Foto 4 - 6: Rasio 3:4
+                canvas.width = 270;
+                canvas.height = 360;
+            }
 
             ctx.fillStyle = '#FFF0F5';
             ctx.fillRect(0, 0, canvas.width, canvas.height);
@@ -1020,8 +1210,10 @@ document.addEventListener('DOMContentLoaded', () => {
                 }
 
                 const canvasRect = canvas.getBoundingClientRect();
-                const x = clientX - canvasRect.left;
-                const y = clientY - canvasRect.top;
+                const scaleX = canvasRect.width > 0 ? canvas.width / canvasRect.width : 1;
+                const scaleY = canvasRect.height > 0 ? canvas.height / canvasRect.height : 1;
+                const x = (clientX - canvasRect.left) * scaleX;
+                const y = (clientY - canvasRect.top) * scaleY;
 
                 ctx.lineWidth = brushRadius * 2;
                 ctx.lineCap = 'round';
